@@ -1,0 +1,1 @@
+web: cabal rung -- $PORT
