@@ -149,9 +149,8 @@ expandClause st (Read v, (Print sy:Move d:acts), ast) = do
 expandClause st (sym, (Print s:Move d:acts), ast) = do
                                 syms <- expandSymbol sym 
                                 s'   <- lookupSymbol s
-                                nst <- (+100) <$> M.size <$> aStateTable <$> get
-                                modify (\s -> s{aStateTable = M.insert (Name (show nst)) nst (aStateTable s) })
-                                nxt  <- expandClause (Name $ show nst) (Any , acts, ast)
+                                nst <- nextName
+                                nxt  <- expandClause nst (Any , acts, ast)
                                 st' <- expandState st
                                 nxt' <- expandState nxt
                                 mapM_ (\s -> insertClause (st', s) (Action s' d, nxt')) syms
