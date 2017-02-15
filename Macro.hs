@@ -113,7 +113,12 @@ expandMacro n args = do
                                 replaceSt (Name s) stMa syMa = Name $ fromMaybe s (M.lookup s syMa)
 
 expandState :: ASt -> State Abbrv St
-expandState (Name s)      = (M.! Name s) . aStateTable <$> get -- All non-functional states should have been added to the table during parsing
+expandState (Name s)      = (M.lookup (Name s)) . aStateTable <$> get >>= \m -> case m of
+                              (Just x) -> return x
+                              Nothing  -> do
+                                            v <- M.size . aStateTable <$> get
+                                            modify (\a -> a{aStateTable = M.insert (Name s) v (aStateTable a)})
+                                            return v
 expandState s@(Func n args) = aStateTable <$> get >>= \st ->
                                                               case M.lookup s st of
                                                                 Just i  -> return i
@@ -142,7 +147,7 @@ expandClause st (Read v, (Print sy:Move d:acts), ast) = do
                                                              f a b (Print s) = if s == a then Print b else Print s
                                                              f _ _ a = a
 expandClause st (sym, (Print s:Move d:acts), ast) = do
-                                syms <- expandSymbol sym
+                                syms <- expandSymbol sym 
                                 s'   <- lookupSymbol s
                                 nst <- (+100) <$> M.size <$> aStateTable <$> get
                                 modify (\s -> s{aStateTable = M.insert (Name (show nst)) nst (aStateTable s) })
@@ -152,11 +157,14 @@ expandClause st (sym, (Print s:Move d:acts), ast) = do
                                 mapM_ (\s -> insertClause (st', s) (Action s' d, nxt')) syms
                                 return st
 expandClause st (sym, (Print s:acts), ast) = expandClause st (sym, Print s: Move N:acts, ast)
+expandClause st (Read v, (Move d:acts), ast) = expandClause st (Read v, (Print v: Move d: acts), ast)
 expandClause st (sym, (Move d:acts), ast) = do
-                                nst <- (+100) <$> M.size <$> aStateTable <$> get
-                                modify (\s -> s{aStateTable = M.insert (Name (show nst)) nst (aStateTable s) })
-                                nxt <- expandClause (Name $ show nst) (sym, acts, ast)
-                                expandClause st (Read "a", (Print "a": Move d:[]), nxt)
+                                syms <- expandSymbol sym
+                                nst <- nextName
+                                nxt <- expandClause nst (Any, acts, ast) 
+                                nxt' <- expandState nxt
+                                st' <- expandState st
+                                mapM_ (\s -> insertClause (st', s) (Action s d, nxt')) syms
                                 return st
 
 
