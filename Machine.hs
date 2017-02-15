@@ -2,21 +2,21 @@ module Machine where
 
 import qualified Data.Map as M
 
-type State  = Int
+type St  = Int -- St stand for state it uniquely denotes a state in a turing machine
 type Symbol = Int
 
-data Config = Config { curState :: State
-                     , states :: M.Map (State, Symbol) (Action, State)
+data Config = Config { curState :: St
+                     , states :: M.Map (St, Symbol) (Action Symbol, St)
                      , ltape :: [Symbol]
                      , rtape :: [Symbol]
                      , cur   :: Symbol
                      }
-              deriving Show
+              deriving (Show)
 
 data Dir  = L | R | N
             deriving Show
-data Action = Action Symbol Dir
-              deriving Show
+data Action s = Action s Dir
+              deriving (Show)
 
 
 move :: Dir -> Config -> Config
@@ -26,7 +26,7 @@ move R c@Config {ltape = ls    , rtape = (r:rs), cur = cur} = c {ltape = cur:ls,
 move R c@Config {ltape = ls    , rtape = []    , cur = cur} = c {ltape = cur:ls, rtape = [], cur = 0}
 move N c = c
 
-applyAction :: Action -> Config -> Config
+applyAction :: Action Symbol -> Config -> Config
 applyAction (Action sym d) c@Config {} = move d $ c {cur = sym}
 
 
@@ -39,3 +39,6 @@ stepAll c = step c >>= stepAll
 stepN :: Int -> Config -> Maybe Config
 stepN 0 c = Just c
 stepN n c = step c >>= stepN (n-1)
+
+tapes :: Config -> [Symbol]
+tapes Config {ltape=l, rtape=r, cur=c} = l ++ [c] ++ r

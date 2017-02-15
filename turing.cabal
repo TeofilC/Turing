@@ -11,9 +11,20 @@ executable          turing
 
                     Home
 
+                    Parser
+                    Macro
+                    Machine
+
   ghc-options:      -Wall -fwarn-tabs -O2
 
   build-depends:  base
+                , containers
+                , mtl
+                , parsec
                 , yesod-core
+                , yesod-form
+                , shakespeare >= 2.0
+                , case-insensitive >= 1.2
+                , text
 
   ghc-options:    -threaded -O2 -rtsopts -with-rtsopts=-N
