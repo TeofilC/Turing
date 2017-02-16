@@ -1,0 +1,12 @@
+upper   = ? all uppercase characters ?;
+lower   = ? all lowercase characters ?;
+digit   = ? the digits from 0 to 9   ?;
+
+machine = {rule};
+rule    = state, ":", {clause};
+clause  = symset, {action, ","} , ";", state;
+action  = ("P", symbol) | "R" | "L" | "N";
+symset  = "Any" | "AnyAndNone" | "None" | "Not", symbol | "Read", symbol | symbol;
+symbol  = {lower | digit};
+state   = {upper | digit} | func;
+func    = {upper | digit}, "(", {state | symbol}, ")";

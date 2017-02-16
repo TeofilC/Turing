@@ -21,8 +21,10 @@ executable          turing
                 , containers
                 , mtl
                 , parsec
+                , blaze-markup >= 0.7
                 , yesod-core
                 , yesod-form
+                , yesod-static
                 , shakespeare >= 2.0
                 , case-insensitive >= 1.2
                 , text

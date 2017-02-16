@@ -9,6 +9,7 @@ import Machine
 
 pSymbol :: Parsec String u ASym
 pSymbol = fmap Sym (many1 (lower <|> digit))
+        <|> try (string "AnyAndNone" >> return AnyAndNone)
         <|> (string "Any" >> return Any)
         <|> try (string "Not" >> spaces >> fmap Not (many1 (lower<|>digit)))
         <|> (string "None" >> return None)
@@ -42,7 +43,7 @@ pClause = try $ do
            return (sym,act,st)
 
 pClauses :: Parsec String u [(ASym, [Act], ASt)]
-pClauses = sepEndBy1 pClause (string "\r\n" <|> string "\n")
+pClauses = sepEndBy1 pClause spaces -- (string "\r\n" <|> string "\n")
 
 pRule :: Parsec String u (ASt, [(ASym, [Act], ASt)])
 pRule = do

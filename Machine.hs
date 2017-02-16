@@ -41,4 +41,15 @@ stepN 0 c = Just c
 stepN n c = step c >>= stepN (n-1)
 
 tapes :: Config -> [Symbol]
-tapes Config {ltape=l, rtape=r, cur=c} = l ++ [c] ++ r
+tapes Config {ltape=l, rtape=r, cur=c} = reverse l ++ [c] ++ r
+
+standardDesc :: Config -> String
+standardDesc Config{states = s} = take 10000 $ foldl f "" (M.toList s)
+  where
+    f a ((st,re),(Action pr d, nxt)) = a ++ showSt st ++ showSy re ++ showSy pr ++ show d ++ showSt nxt ++ ";"
+    showSt = reverse . showSt'
+    showSt' 0 = "D"
+    showSt' n = 'A':showSt' (n-1)
+    showSy = reverse . showSy'
+    showSy' 0 = "D"
+    showSy' n = 'C':showSy' (n-1)

@@ -10,7 +10,7 @@ import Control.Monad.State
 import Data.List
 import Data.Maybe
 
-data ASym   = Sym String | Not String | Read String | Any | None
+data ASym   = Sym String | Not String | Read String | Any | None | AnyAndNone
               deriving (Eq, Ord, Show)
 data AState a = Func a [Type] | Name a
               deriving (Eq, Ord, Functor)
@@ -82,7 +82,7 @@ insertClause k v = modify (\s -> s {result = M.insertWith (flip const) k v (resu
 
 expandMacro :: String -> [Type] -> State Abbrv St
 expandMacro n args = do
-                            (args1,trans) <- fromJust . M.lookup (n,map SType args) . aMacroTable <$> get
+                            (args1,trans) <- fromMaybe (error $ show n ++ show args). M.lookup (n,map SType args) . aMacroTable <$> get
                             let (sym1, st1) = partitionType args
                             let (sym2, st2) = partitionType args1
                             let symMa = M.fromList (zip sym2 sym1)
@@ -91,7 +91,7 @@ expandMacro n args = do
                             state <- get
                             let c = M.size (aStateTable state)
                             put (state {aStateTable = M.insert (Func n args) c (aStateTable state)})
-                            expandRule (Func n args) v 
+                            expandRule (Func n args) v
                             return c
                               where
                                 replaceSym (Sym s) ma = case M.lookup s ma of
@@ -110,7 +110,7 @@ expandMacro n args = do
                                   where
                                     f (Sy s) = Sy $ fromMaybe s (M.lookup s syMa)
                                     f (St s) = St $ fromMaybe s (M.lookup s stMa)
-                                replaceSt (Name s) stMa syMa = Name $ fromMaybe s (M.lookup s syMa)
+                                replaceSt s stMa syMa = fromMaybe s (M.lookup s stMa)
 
 expandState :: ASt -> State Abbrv St
 expandState (Name s)      = (M.lookup (Name s)) . aStateTable <$> get >>= \m -> case m of
@@ -140,17 +140,17 @@ expandClause st (Read v, (Print sy:Move d:acts), ast) = do
                                                            mapM_ (\s1 -> do
                                                                      s  <- lookupSymbol s1
                                                                      nst <- nextName
-                                                                     nxt' <- expandClause nst (Any, map (f v s1) acts, ast) >>= expandState
+                                                                     nxt' <- expandClause nst (AnyAndNone, map (f v s1) acts, ast) >>= expandState
                                                                      insertClause (st', s) (Action (if v == sy then s else s') d, nxt')) syms
                                                            return st
                                                            where
                                                              f a b (Print s) = if s == a then Print b else Print s
                                                              f _ _ a = a
 expandClause st (sym, (Print s:Move d:acts), ast) = do
-                                syms <- expandSymbol sym 
+                                syms <- expandSymbol sym
                                 s'   <- lookupSymbol s
                                 nst <- nextName
-                                nxt  <- expandClause nst (Any , acts, ast)
+                                nxt  <- expandClause nst (AnyAndNone , acts, ast)
                                 st' <- expandState st
                                 nxt' <- expandState nxt
                                 mapM_ (\s -> insertClause (st', s) (Action s' d, nxt')) syms
@@ -160,7 +160,7 @@ expandClause st (Read v, (Move d:acts), ast) = expandClause st (Read v, (Print v
 expandClause st (sym, (Move d:acts), ast) = do
                                 syms <- expandSymbol sym
                                 nst <- nextName
-                                nxt <- expandClause nst (Any, acts, ast) 
+                                nxt <- expandClause nst (AnyAndNone, acts, ast)
                                 nxt' <- expandState nxt
                                 st' <- expandState st
                                 mapM_ (\s -> insertClause (st', s) (Action s d, nxt')) syms
@@ -168,10 +168,11 @@ expandClause st (sym, (Move d:acts), ast) = do
 
 
 expandSymbol :: ASym -> State Abbrv [Symbol]
-expandSymbol (Sym s) = return <$> lookupSymbol s
-expandSymbol Any     = map snd . M.toList . aSymbolTable <$> get
-expandSymbol (Not s) = lookupSymbol s >>= \sv -> filter (/= sv) <$> expandSymbol Any
-expandSymbol None    = return [0]
+expandSymbol (Sym s)    = return <$> lookupSymbol s
+expandSymbol AnyAndNone = map snd . M.toList . aSymbolTable <$> get
+expandSymbol Any        = filter (/= 0) <$> expandSymbol AnyAndNone
+expandSymbol (Not s)    = lookupSymbol s >>= \sv -> filter (/= sv) <$> expandSymbol Any
+expandSymbol None       = return [0]
 
 expandRule :: ASt -> [(ASym, [Act], ASt)] -> State Abbrv ASt
 expandRule ast clauses = do

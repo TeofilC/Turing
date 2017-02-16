@@ -1,2 +1,3 @@
 /              HomeR GET
 /turing        TuringR POST
+/static StaticR Static getStatic
