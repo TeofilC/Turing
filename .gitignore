@@ -18,3 +18,4 @@ cabal.sandbox.config
 *.keter
 TAGS
 .dir-locals.el
+client_session_key.aes

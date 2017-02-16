@@ -1,1 +1,1 @@
-web: cabal run -- $PORT
+web: stack exec turing -- $PORT

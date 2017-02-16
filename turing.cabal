@@ -21,12 +21,12 @@ executable          turing
                 , containers
                 , mtl
                 , parsec
-                , blaze-markup >= 0.7
+                , blaze-markup
                 , yesod-core
                 , yesod-form
                 , yesod-static
-                , shakespeare >= 2.0
-                , case-insensitive >= 1.2
+                , shakespeare
+                , case-insensitive
                 , text
 
   ghc-options:    -threaded -O2 -rtsopts -with-rtsopts=-N
