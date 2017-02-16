@@ -1,1 +1,1 @@
-web: stack exec turing -- $PORT
+web: turing $PORT
