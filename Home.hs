@@ -18,6 +18,7 @@ import Text.Blaze.Internal (preEscapedString)
 import qualified Data.Map as M
 import qualified Data.IntMap as IM
 import Data.IntMap ((!))
+import Data.Maybe
 
 
 
@@ -25,7 +26,7 @@ instance RenderMessage App FormMessage where
   renderMessage _ _ = defaultFormMessage
 
 machineAForm :: AForm Handler Textarea
-machineAForm = areq textareaField (bfs ("Code" :: Text)) Nothing
+machineAForm = fromJust <$> aopt textareaField (FieldSettings (SomeMessage ("Code" :: Text)) Nothing (Just "code") Nothing []) Nothing
 
 machineForm = renderBootstrap3 BootstrapBasicForm machineAForm
 
@@ -36,10 +37,26 @@ getHomeR = do
     setTitle "Teo's Turing Translator"
     addScriptRemote "https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"
     addScriptRemote "https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"
+    addScript $ StaticR js_codemirror_js
+    addScript $ StaticR js_simple_js
     addStylesheetRemote "https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"
     addStylesheet $ StaticR css_pygment_css
+    addStylesheet $ StaticR css_codemirror_css
     mmsg <- getMessage
     syntax <- liftIO $ readFile "syntax.html"
+    toWidget [julius|
+                    CodeMirror.defineSimpleMode("tturing",{start: [
+                    {regex: /L|R|N|AnyAndNone|Any|None|Read|Not/, token: "keyword"},
+                    {regex: /[a-z0-9][a-z0-9]*/, token: "variable-3"},
+                    {regex: /[A-Z][A-Z0-9]*/, token: "variable-2"},
+]});
+                    var myCodeMirror = CodeMirror.fromTextArea(document.getElementById("code"), {
+                    lineNumbers: true,
+                    smartIndent: false,
+                    autofocus: true,
+                    mode       : "tturing"
+                    });
+|]
     [whamlet|
         <div .panel .panel-default>
           <div .panel-heading>
