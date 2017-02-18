@@ -46,7 +46,7 @@ getHomeR = do
     syntax <- liftIO $ readFile "syntax.html"
     toWidget [julius|
                     CodeMirror.defineSimpleMode("tturing",{start: [
-                    {regex: /L|R|N|AnyAndNone|Any|None|Read|Not/, token: "keyword"},
+                    {regex: /None|Read|L|R|N|AnyAndNone|Any|Not/, token: "keyword"},
                     {regex: /[a-z0-9][a-z0-9]*/, token: "variable-3"},
                     {regex: /[A-Z][A-Z0-9]*/, token: "variable-2"},
 ]});
@@ -58,6 +58,9 @@ getHomeR = do
                     });
 |]
     [whamlet|
+        <form role=form method=post action=@{TuringR} enctype=#{enctype}>
+           ^{widget}
+           <button type="submit" .btn .btn-default> Submit
         <div .panel .panel-default>
           <div .panel-heading>
             <a role="button" data-toggle="collapse" aria-expanded="true" href="#syntax"> Info
@@ -72,8 +75,8 @@ getHomeR = do
              <p>
                B: <br>
                None P 0;     B<br>
-               1    R,R,P 1; B<br>
-               0    R,R,P 0; B<br>
+               1    R,R,P 0; B<br>
+               0    R,R,P 1; B<br>
 
            <h3> A machine which prints 0,1,2 to the tape then replaces the first occurence of 1 with "found"
            <div .well>
@@ -105,9 +108,6 @@ getHomeR = do
 
         $maybe msg <- mmsg
           <p> Your message was: #{msg}
-        <form role=form method=post action=@{TuringR} enctype=#{enctype}>
-           ^{widget}
-           <button type="submit" .btn .btn-default> Submit
     |]
 
 transTableW :: TransitionTable -> Widget
@@ -158,7 +158,7 @@ postTuringR = do
          addStylesheetRemote "https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"
          let res = parseAbbrv . unpack . unTextarea $ mach
          case res of
-           (Right a) -> (case stepN 100 (Config 0 (transTable v) [] [3] 3) of
+           (Right a) -> (case stepN 100 (Config 0 (transTable v) [3,3] [] 0) of
                             (Just x) -> configW (symbolTable v) x
                             Nothing -> [whamlet|<p> something went wrong :(|]) >> (transTableW v)
                             where
