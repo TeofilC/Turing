@@ -36,7 +36,8 @@ pClause :: Parsec String u (ASym, [Act], ASt)
 pClause = try $ do
            sym <- pSymbol
            spaces
-           act <- sepBy1 pAction  (spaces >> string "," >> spaces)
+           act <- sepBy1 pAction  (try (spaces >> string "," >> spaces))
+           spaces
            string ";"
            spaces
            st  <- pState

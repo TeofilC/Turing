@@ -140,12 +140,16 @@ expandClause st (Read v, (Print sy:Move d:acts), ast) = do
                                                            mapM_ (\s1 -> do
                                                                      s  <- lookupSymbol s1
                                                                      nst <- nextName
-                                                                     nxt' <- expandClause nst (AnyAndNone, map (f v s1) acts, ast) >>= expandState
+                                                                     nxt' <- expandClause nst (AnyAndNone, map (f v s1) acts, g v s1 ast) >>= expandState
                                                                      insertClause (st', s) (Action (if v == sy then s else s') d, nxt')) syms
                                                            return st
                                                            where
                                                              f a b (Print s) = if s == a then Print b else Print s
                                                              f _ _ a = a
+                                                             g a b (Func  n args) = Func n (map (h a b) args)
+                                                             g a b c = c
+                                                             h a b (Sy s) = if s == a then Sy b else Sy s
+                                                             h a b c = c
 expandClause st (sym, (Print s:Move d:acts), ast) = do
                                 syms <- expandSymbol sym
                                 s'   <- lookupSymbol s

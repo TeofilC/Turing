@@ -66,9 +66,16 @@ getHomeR = do
             <a role="button" data-toggle="collapse" aria-expanded="true" href="#syntax"> Info
           <div .panel-body #syntax >
             <h2> Usage
-            Enter a description of an abbreviated Turing machine into the textarea entitled Code and press submit. You will be redirected to a page which will show the tape after 100 iterations and a table showing the full Turing machine state table. The syntax is described in EBNF as
+            <p> Enter a description of an abbreviated Turing machine into the textarea entitled Code and press submit. You will be redirected to a page which will show the tape after 100 iterations and a table showing the expanded state transition table. The syntax is described in EBNF as
             : #{preEscapedString syntax}
-            Note that my syntax diverges slightly from that employed by Turing. Instead of using German gothic characters for m-configuration and skeletal table names, I use string of uppercase letters and digts. Furthermore symbols are restricted to strings of lowercase letters and digits. I add AnyAndNone, which as one could guess is equivalent to saying all symbols including the blank symbol.
+            <p> Note that my syntax diverges slightly from that employed by Turing in the following ways:
+            <ul>
+              <li> M-configuration and skeleton table names are denoted by a sequence of uppercase characters and digits (but cannot begin with a digit), as opposed to german gothic characters, eg, A, ABCD, PR1, PR2RC4, ...
+              <li> Symbols must only consist of a sequence of lowercase characteers and digits, eg, 0, 1, 1b2, abc, ...
+              <li> Each clause of a given m-configuration or skeletal table must have at least one behaviour even if it is merely "N" which does not move the tape, ie, "Any B" or "Any ; B" is not valid but "Any N; B" is valid
+              <li> AnyAndNone denotes any non-empty character and the empty character
+              <li> Turing occasionally uses syntax such as in his defintion of C1, ie, C1(E) β PE(E,β), beta in this case does not denote itself but rather acts as a variable. In my syntax this can be written as "C1(E): Read b N; PE(E,b)"
+
            And here are a few examples
            <h3> Turing's first example of a machine
            <div .well>
@@ -82,7 +89,7 @@ getHomeR = do
            <div .well>
              <p>
                 B:<br>
-                AnyAndNone R,R,R,P 0, R, P 1, R, P 2, R, R; F(C,D,1)<br>
+                AnyAndNone R,P 0, R, P 1, R, P 2, R, R; F(D,C,1)<br>
                 <br>
                 C:<br>
                 Any P found; D<br>
@@ -92,9 +99,9 @@ getHomeR = do
                 None P notfound; D<br>
                 <br>
                 F(B,C,a):<br>
-                e L; F1(C,B,a)<br>
-                Not e L; F(C,B,a)<br>
-                None L; F(C,B,a)<br>
+                e L; F1(B,C,a)<br>
+                Not e L; F(B,C,a)<br>
+                None L; F(B,C,a)<br>
                 <br>
                 F1(B,C,a):<br>
                 a N; C<br>
@@ -113,7 +120,13 @@ getHomeR = do
 transTableW :: TransitionTable -> Widget
 transTableW TransTable {symbolTable= syt, stateTable=stt, transTable =tt} = [whamlet|
                                                                                     <table .table .table-bordered >
-                                                                                       $forall r <- rule <$> rearrange (M.toList tt)
+                                                                                       <tr>
+                                                                                         <td> M-config
+                                                                                         <td> Read symbol
+                                                                                         <td> Printed symbol
+                                                                                         <td> Movement
+                                                                                         <td> Next m-config
+                                                                                       $forall r <- rule <$> reverse (rearrange (M.toList tt))
                                                                                          ^{r}
                                                                                     |]
   where
@@ -124,7 +137,7 @@ transTableW TransTable {symbolTable= syt, stateTable=stt, transTable =tt} = [wha
     rearrange' (((st1,sy), (a,b)):xs) ((st2, cls):rs) = if st1 == st2 then rearrange' xs ((st2,(sy,a,b):cls):rs) else rearrange' xs ((st1,[(sy,a,b)]):(st2,cls):rs)
     rule   (st, clauses)           = [whamlet|
                                              <tr>
-                                               <td rowspan=#{show $ (length clauses) + 1}> #{show $ stt ! st}
+                                               <td rowspan=#{show $ (length clauses) + 1}> #{show st} (#{show $ stt ! st})
                                              $forall cl <- clause <$> clauses
                                                 ^{cl}
                                              |]
@@ -133,7 +146,7 @@ transTableW TransTable {symbolTable= syt, stateTable=stt, transTable =tt} = [wha
                                               <td> #{syt ! sy1}
                                               <td> #{syt ! sy2}
                                               <td> #{show d}
-                                              <td> #{show $ stt ! st}
+                                              <td> #{show st} (#{show $ stt ! st})
                                             |]
 
 configW :: IM.IntMap String -> Config -> Widget
