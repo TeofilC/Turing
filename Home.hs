@@ -46,7 +46,7 @@ getHomeR = do
     syntax <- liftIO $ readFile "syntax.html"
     toWidget [julius|
                     CodeMirror.defineSimpleMode("tturing",{start: [
-                    {regex: /None|Read|L|R|N|AnyAndNone|Any|Not/, token: "keyword"},
+                    {regex: /None|Read|E|L|R|N|AnyAndNone|Any|Not/, token: "keyword"},
                     {regex: /[a-z0-9][a-z0-9]*/, token: "variable-3"},
                     {regex: /[A-Z][A-Z0-9]*/, token: "variable-2"},
 ]});
@@ -112,6 +112,8 @@ getHomeR = do
                 a N; C<br>
                 Not a R; F1(B,C,a)<br>
                 None N; B<br>
+           <h3> Petzold's example of a machine for the sqrt(2)
+             <a href=@{StaticR sqrt_txt } target="_blank"> Sqrt.txt
 
         $maybe msg <- mmsg
           <p> Your message was: #{msg}
@@ -171,7 +173,7 @@ postTuringR = do
          addStylesheetRemote "https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"
          let res = parseAbbrv . unpack . unTextarea $ mach
          case res of
-           (Right a) -> (case stepN 100 (Config 0 (transTable v) [3,3] [] 0) of
+           (Right a) -> (case stepN 100000 (Config 0 (transTable v) [] [] 0) of
                             (Just x) -> configW (symbolTable v) x
                             Nothing -> [whamlet|<p> something went wrong :(|]) >> (transTableW v)
                             where

@@ -115,10 +115,10 @@ expandMacro n args = do
 expandState :: ASt -> State Abbrv St
 expandState (Name s)      = (M.lookup (Name s)) . aStateTable <$> get >>= \m -> case m of
                               (Just x) -> return x
-                              Nothing  -> do
+                              Nothing  -> error (show s){-do
                                             v <- M.size . aStateTable <$> get
-                                            modify (\a -> a{aStateTable = M.insert (Name s) v (aStateTable a)})
-                                            return v
+                                            modify (\a -> a{aStateTable = M.insert (Name s) v (aStateTable a)}) 
+                                            return v -}
 expandState s@(Func n args) = aStateTable <$> get >>= \st ->
                                                               case M.lookup s st of
                                                                 Just i  -> return i

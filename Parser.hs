@@ -30,7 +30,7 @@ pDir =  (string "L" >> return L)
     <|> (string "N" >> return N)
 
 pAction :: Parsec String u (Act)
-pAction = (string "P" >> spaces >> Print <$> many1 (lower <|> digit)) <|> (Move <$> pDir)
+pAction = (string "P" >> spaces >> Print <$> many1 (lower <|> digit)) <|> (string "E" >> return (Print " ")) <|> (Move <$> pDir)
 
 pClause :: Parsec String u (ASym, [Act], ASt)
 pClause = try $ do
