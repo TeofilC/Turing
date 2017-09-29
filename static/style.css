@@ -1,0 +1,22 @@
+.draghandle{
+    padding: 4px;
+    cursor: move;
+}
+
+.flex{
+    display: flex;
+}
+
+.fill{
+    flex: 1 1 auto;
+}
+
+.scroll{
+    overflow-x: scroll;
+    display: block;
+}
+
+.monospace{
+    font-family: Liberation Mono, Consolas, DejaVu Sans Mono, monospace;
+    font-size: 14pt;
+}

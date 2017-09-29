@@ -1,42 +1,58 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeOperators              #-}
 module Macro where
-import qualified Data.Map as M
-import qualified Data.IntMap as IM
+import qualified Data.IntMap            as IM
+import qualified Data.Map               as M
 
-import Machine
+import           Machine                hiding (states)
 
-import Control.Monad.State
-import Data.List
-import Data.Maybe
+import           Control.Monad.RWS.Lazy hiding (Any, asks, get, gets, local,
+                                         modify)
+import           Data.Label             (get, mkLabels)
+import           Data.Label.Monadic
+import           Data.List
+import           Data.Maybe
 
 data ASym   = Sym String | Not String | Read String | Any | None | AnyAndNone
-              deriving (Eq, Ord, Show)
+              deriving (Eq, Ord)
+
+instance Show ASym where
+  show (Sym str)  = str
+  show (Not str)  = "Not " ++ str
+  show (Read str) = "Not " ++ str
+  show Any        = "Any"
+  show None       = "None"
+  show AnyAndNone = "AnyAndNone"
+
 data AState a = Func a [Type] | Name a
               deriving (Eq, Ord, Functor)
 
 type ASt = AState String
 
-data Act    = Print String | Move Dir
-              deriving Show
-
 instance Show (AState String) where
   show (Func n args) = n ++ "(" ++ intercalate ", " (map show args) ++ ")"
-  show (Name n) = n
+  show (Name n)      = n
 
-data Abbrv = Abbrv { aSymbolTable     :: M.Map String Int
-                   , aStateTable      :: M.Map ASt Int
-                   , aMacroTable      :: M.Map (String,[ShallowType]) ([Type], [(ASym, [Act] ,ASt)])
-                   , result           :: M.Map (St, Symbol) (Action Symbol, St)}
-             deriving Show
+data Act    = Print String | Move Dir
 
-data TransitionTable = TransTable { symbolTable     :: IM.IntMap String
-                                  , stateTable      :: IM.IntMap ASt
-                                  , transTable      :: M.Map (St, Symbol) (Action Symbol, St)}
-                       deriving Show
+instance Show Act where
+  show (Print " ") = "E"
+  show (Print s)   = "P " ++ s
+  show (Move d)    = show d
+
+type ARow = ((ASt, ASym), ([Act], ASt))
+type Row = ((St, Symbol),(Action Symbol, St))
 
 data Type = Sy String | St ASt
-            deriving (Eq, Ord, Show)
+            deriving (Eq, Ord)
+
+instance Show Type where
+  show (Sy s) = s
+  show (St s) = show s
 
 newtype ShallowType = SType {unShallowType :: Type}
 
@@ -53,21 +69,142 @@ instance Show ShallowType where
   show (SType (Sy s)) = show s
   show (SType (St s)) = show s
 
+data Env = Env { _macroMap  :: M.Map (String, [ShallowType]) ([Type], [(ASym, [Act], ASt)])
+               , _symbolMap :: M.Map String Int
+               , _substSymbol  :: String -> String
+               , _substState   :: ASt -> ASt
+               , _readSymbol :: String
+               }
+
+
+env mm symm = Env mm symm id id undefined
+
+data Status  = Status { _states       :: M.Map ASt Int
+                      , _currentState :: String
+                      , _counter      :: Int
+                      }
+  deriving (Show)
+
+emptyStatus :: Status
+emptyStatus = Status M.empty "" 0
+
+$(mkLabels [''Env, ''Status])
+
+instance Show Env where
+  show e = show (get macroMap e) ++ "\n" ++ show (get symbolMap e)
+
+newtype Expander a = Expander {unExpander :: RWS Env [Row] Status a}
+  deriving (Functor, Applicative, Monad, MonadRWS Env [Row] Status, MonadReader Env, MonadState Status, MonadWriter [Row])
+
 invert :: M.Map a Int -> IM.IntMap a
 invert = IM.fromList . map (\(a,b) -> (b,a)). M.toList
 
-getOrAssign :: Ord a => a -> M.Map a Int -> (Int, M.Map a Int)
-getOrAssign a m = case M.lookup a m of
-                    Just r  -> (r, m)
-                    Nothing -> (M.size m, M.insert a (M.size m) m)
+type Sub a = (String -> String) -> (ASt -> ASt) -> a -> a
 
-lookupSymbol :: String -> State Abbrv Symbol
-lookupSymbol s = do
-                  state <- get
-                  let (r,m) = getOrAssign s (aSymbolTable state)
-                  put state {aSymbolTable = m}
-                  return r
+subState :: ASt -> Expander ASt
+subState (Func n args) = do
+  sy <- asks substSymbol
+  st <- asks substState
 
+  return $ Func n (map (subType sy st) args)
+subState s = do
+  st <- asks substState
+  return $ st s
+
+subType :: Sub Type
+subType sy st (Sy s) = Sy $ sy s
+subType sy st (St s) = St $ st s
+
+subSymbol :: ASym -> Expander ASym
+subSymbol (Sym s) = do
+  sy <- asks substSymbol
+  return $ Sym $ sy s
+subSymbol (Not s) = do
+  sy <- asks substSymbol
+  return $ Not $ sy s
+subSymbol (Read s) = do
+  sy <- asks substSymbol
+  return $ Read $ sy s
+subSymbol s = return s
+
+subAct :: Sub Act
+subAct sy st (Print s) = Print $ sy s
+subAct _  _   a        = a
+
+symbols :: Expander [String]
+symbols = M.keys <$> asks symbolMap
+
+expand :: [ARow] -> Expander ()
+expand = mapM_ (\row -> resetCounters row >> expandRow row)
+  where
+    resetCounters ((ast,_),_) = do
+      modify currentState (const $ show ast)
+      --modify counter (const 0)
+
+insertState :: ASt -> Expander Int
+insertState st = do
+  n <- M.size <$> gets states
+  modify states (M.insert st n)
+  return n
+
+expandRow :: ARow -> Expander ()
+expandRow ((ast, asym),(acts,k)) = do
+  let (x:xs) = padActs acts
+  st <- lookupState ast
+  expandSymbol asym $ \s -> local readSymbol (const s) $ do
+    k' <- lookupState k
+    lastk <- foldM (expandAct Nothing) k' (reverse xs)
+    expandAct (Just st) lastk x
+    return ()
+  return ()
+
+lookupState st = do
+  st' <- subState st
+  stM <- gets states
+  case M.lookup st' stM of
+    (Just x) -> return x
+    Nothing  -> expandState st'
+
+lookupSymbol sym = do
+  subSym <- asks substSymbol
+  symM <- asks symbolMap
+  case M.lookup (subSym sym) symM of
+    (Just x) -> return x
+    Nothing  -> asks symbolMap >>= \sm -> error ("This shouldn't happen" ++ show sym ++ show (subSym sym))
+
+expandSymbol :: ASym -> (String -> Expander ()) -> Expander ()
+expandSymbol AnyAndNone k = symbols >>= mapM_ k
+expandSymbol Any k = filter (" "/=) <$> symbols >>= mapM_ k
+expandSymbol (Not s) k = filter (s/=) <$> symbols >>= mapM_ k
+expandSymbol None k = k " "
+expandSymbol (Sym s) k = k s
+expandSymbol (Read v) k = symbols >>= mapM_ (\s -> local substSymbol (. (\x -> if x == v then s else x)) $ k s)
+
+padActs []                   = []
+padActs (Print x: Move d:xs) = (Just x ,      d): padActs xs
+padActs (Print x:xs)         = (Just x ,      N): padActs xs
+padActs (Move d: xs)         = (Nothing,      d): padActs xs
+
+newState = do
+  s <- M.size <$> gets states
+  cS <- gets currentState
+  count <- gets counter
+  modify counter (+1)
+  modify states (M.insert (Name $ cS ++ "." ++  show count) s)
+  return s
+
+expandAct Nothing k a = do
+  st <- newState
+  expandSymbol AnyAndNone (\s -> local readSymbol (const s) $ void (expandAct (Just st) k a ))
+  return st
+expandAct (Just st) k (Just x, d) = do
+  x' <- lookupSymbol x
+  sym <- lookupSymbol =<< asks readSymbol
+  tell [((st,sym),(Action x' d, k))]
+  return st
+expandAct (Just st) k (Nothing, d) = do
+  rS <- asks readSymbol
+  expandAct (Just st) k (Just rS, d)
 
 partitionType :: [Type] -> ([String],[ASt])
 partitionType []      = ([], [])
@@ -76,122 +213,29 @@ partitionType (t:ts)  = case t of
                                 St s -> (ls,s:rs)
   where
     (ls,rs) = partitionType ts
+expandState :: ASt -> Expander Int
+expandState ast@(Func str args) = do
+  mm <- asks macroMap
+  case M.lookup (str, map SType args) mm of
+    (Just (mapping,rows)) -> do
+      let (syms1, sts1) = partitionType args
+      let (syms2, sts2) = partitionType mapping
+      let symM = M.fromList $ zip syms2 syms1
+      let stM = M.fromList $ zip sts2 sts1
+      st <- insertState ast
+      local substSymbol (const (\k -> M.findWithDefault k k symM)) $
+        local substState (const (\k -> M.findWithDefault k k stM )) $ expand $ map (\(a,b,c) -> ((ast,a),(b,c))) rows
+      return st
+    Nothing  -> error "undefined m-function"
+expandState _ = error "Insert a more informative error message here"
 
-insertClause :: (St,Symbol) -> (Action Symbol, St) -> State Abbrv ()
-insertClause k v = modify (\s -> s {result = M.insertWith (flip const) k v (result s)})
-
-expandMacro :: String -> [Type] -> State Abbrv St
-expandMacro n args = do
-                            (args1,trans) <- fromMaybe (error $ show n ++ show args). M.lookup (n,map SType args) . aMacroTable <$> get
-                            let (sym1, st1) = partitionType args
-                            let (sym2, st2) = partitionType args1
-                            let symMa = M.fromList (zip sym2 sym1)
-                            let stMa = M.fromList (zip st2 st1)
-                            v <- mapM (\(asy, acts, ast) -> return (replaceSym asy symMa, replaceAc symMa <$> acts, replaceSt ast stMa symMa)) trans
-                            state <- get
-                            let c = M.size (aStateTable state)
-                            put (state {aStateTable = M.insert (Func n args) c (aStateTable state)})
-                            expandRule (Func n args) v
-                            return c
-                              where
-                                replaceSym (Sym s) ma = case M.lookup s ma of
-                                                          Just b -> Sym b
-                                                          Nothing -> Sym s
-                                replaceSym (Not s) ma = case M.lookup s ma of
-                                                          Just b -> Not b
-                                                          Nothing -> Not s
-                                replaceSym  a _ = a
-                                replaceAc ma (Print sy) = case M.lookup sy ma of
-                                                            Just b -> Print b
-                                                            Nothing -> Print sy
-                                replaceAc ma a = a
-                                replaceSt :: ASt -> M.Map ASt ASt -> M.Map String String -> ASt
-                                replaceSt (Func n args)  stMa syMa = (Func n (map f args))
-                                  where
-                                    f (Sy s) = Sy $ fromMaybe s (M.lookup s syMa)
-                                    f (St s) = St $ fromMaybe s (M.lookup s stMa)
-                                replaceSt s stMa syMa = fromMaybe s (M.lookup s stMa)
-
-expandState :: ASt -> State Abbrv St
-expandState (Name s)      = (M.lookup (Name s)) . aStateTable <$> get >>= \m -> case m of
-                              (Just x) -> return x
-                              Nothing  -> error (show s){-do
-                                            v <- M.size . aStateTable <$> get
-                                            modify (\a -> a{aStateTable = M.insert (Name s) v (aStateTable a)}) 
-                                            return v -}
-expandState s@(Func n args) = aStateTable <$> get >>= \st ->
-                                                              case M.lookup s st of
-                                                                Just i  -> return i
-                                                                Nothing -> expandMacro n args
-
-nextName :: State Abbrv ASt
-nextName = do
-  nst <- M.size <$> aStateTable <$> get
-  modify (\s -> s{aStateTable = M.insert (Name (show nst)) nst (aStateTable s) })
-  return (Name (show nst))
-
-expandClause :: ASt -> (ASym, [Act], ASt) -> State Abbrv ASt
-expandClause st (sym, [], ast) = return ast
-expandClause st (Read v, (Print sy:Move d:acts), ast) = do
-                                                           syms <- map fst <$> M.toList <$> aSymbolTable <$> get
-                                                           s'   <- lookupSymbol sy
-                                                           nst <- nextName
-                                                           st' <- expandState st
-                                                           mapM_ (\s1 -> do
-                                                                     s  <- lookupSymbol s1
-                                                                     nst <- nextName
-                                                                     nxt' <- expandClause nst (AnyAndNone, map (f v s1) acts, g v s1 ast) >>= expandState
-                                                                     insertClause (st', s) (Action (if v == sy then s else s') d, nxt')) syms
-                                                           return st
-                                                           where
-                                                             f a b (Print s) = if s == a then Print b else Print s
-                                                             f _ _ a = a
-                                                             g a b (Func  n args) = Func n (map (h a b) args)
-                                                             g a b c = c
-                                                             h a b (Sy s) = if s == a then Sy b else Sy s
-                                                             h a b c = c
-expandClause st (sym, (Print s:Move d:acts), ast) = do
-                                syms <- expandSymbol sym
-                                s'   <- lookupSymbol s
-                                nst <- nextName
-                                nxt  <- expandClause nst (AnyAndNone , acts, ast)
-                                st' <- expandState st
-                                nxt' <- expandState nxt
-                                mapM_ (\s -> insertClause (st', s) (Action s' d, nxt')) syms
-                                return st
-expandClause st (sym, (Print s:acts), ast) = expandClause st (sym, Print s: Move N:acts, ast)
-expandClause st (Read v, (Move d:acts), ast) = expandClause st (Read v, (Print v: Move d: acts), ast)
-expandClause st (sym, (Move d:acts), ast) = do
-                                syms <- expandSymbol sym
-                                nst <- nextName
-                                nxt <- expandClause nst (AnyAndNone, acts, ast)
-                                nxt' <- expandState nxt
-                                st' <- expandState st
-                                mapM_ (\s -> insertClause (st', s) (Action s d, nxt')) syms
-                                return st
-
-
-expandSymbol :: ASym -> State Abbrv [Symbol]
-expandSymbol (Sym s)    = return <$> lookupSymbol s
-expandSymbol AnyAndNone = map snd . M.toList . aSymbolTable <$> get
-expandSymbol Any        = filter (/= 0) <$> expandSymbol AnyAndNone
-expandSymbol (Not s)    = lookupSymbol s >>= \sv -> filter (/= sv) <$> expandSymbol Any
-expandSymbol None       = return [0]
-
-expandRule :: ASt -> [(ASym, [Act], ASt)] -> State Abbrv ASt
-expandRule ast clauses = do
-                          forM_ clauses (expandClause ast)
-                          return ast
-
-removeDups :: Ord a => [(a,b)] -> [(a,b)]
-removeDups = rD . sortOn fst
+prettyPrintRows :: Env -> Status -> [Row]-> [(String, String, String, String)]
+prettyPrintRows env status = map (\((a,b),(c,d)) -> (show a ++ ppSt a, show b ++ bracket (ppSy b), ppAct c, show d ++ ppSt d))
   where
-    rD [] = []
-    rD [a] = [a]
-    rD (x:y:xs) = if fst x == fst y then rD (x:xs) else x:y:rD xs
-
-expand :: Abbrv -> M.Map ASt [(ASym, [Act], ASt)] -> TransitionTable
-expand a@Abbrv {aSymbolTable = syt, aStateTable = stt, aMacroTable = mt} tt =
-    TransTable (invert syt') (invert stt') (res)
-  where
-    (_, Abbrv {aSymbolTable=syt',aStateTable=stt', result = res}) = runState (forM_ (M.toList tt) (uncurry expandRule)) a
+  syms = invert . get symbolMap $ env
+  sts = invert . get states $ status
+  ppSt s = bracket . show . fromMaybe (error $ "undefined state: " ++ show s ++ " " ++ show sts) . flip IM.lookup sts $ s
+  ppSy s = fromMaybe (error $ "undefined symbol: " ++ show s) . flip IM.lookup syms $ s
+  ppAct (Action 0 dir)= "E " ++ " " ++ show dir
+  ppAct (Action sy dir)= "P " ++ ppSy sy ++ " " ++ show dir
+  bracket str = " (" ++ str ++ ") "

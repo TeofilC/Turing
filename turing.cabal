@@ -2,31 +2,34 @@ name:               turing
 version:            0.0.0
 cabal-version:      >= 1.8
 build-type:         Simple
-extra-source-files: routes
 
-executable          turing
-  main-is:          Main.hs
-  other-modules:    Application
-                    Foundation
-
-                    Home
-
+executable turing
+  main-is: Main.hs
+  other-modules:
                     Parser
                     Macro
                     Machine
+                    Gen 
+                    Widget
+                    Handler
+                    Examples
+                    Examples.Sqrt
+                    Examples.Basic
 
   ghc-options:      -Wall -fwarn-tabs -O2
+  cpp-options:      -DGHCJS_BROWSER
 
-  build-depends:  base
+  build-depends: base
                 , containers
                 , mtl
+                , transformers
                 , parsec
-                , blaze-markup
-                , yesod-core
-                , yesod-form
-                , yesod-static
-                , shakespeare
-                , case-insensitive
+                , ghcjs-dom
+                , ghcjs-base
                 , text
+                , fclabels
+                , template-haskell
+                , raw-strings-qq
+                
 
   ghc-options:    -threaded -O2 -rtsopts -with-rtsopts=-N

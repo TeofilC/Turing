@@ -1,28 +1,36 @@
 module Parser where
 -- import Data.Text
 import Data.Char
+import Data.Label
 import qualified Data.Map as M
 import Text.Parsec
 import Macro
-import Machine
+import Machine hiding (states)
+
+spaces1 = skipMany1 space
+inBrackets = between (string "(") (string ")")
 
 
-pSymbol :: Parsec String u ASym
-pSymbol = fmap Sym (many1 (lower <|> digit))
-        <|> try (string "AnyAndNone" >> return AnyAndNone)
-        <|> (string "Any" >> return Any)
-        <|> try (string "Not" >> spaces >> fmap Not (many1 (lower<|>digit)))
-        <|> (string "None" >> return None)
-        <|> (string "Read" >> spaces >> fmap Read (many1 (lower <|> digit)))
+pMConfigName, pSymbol :: Parsec String u String
+pMConfigName = (:) <$> upper <*> many alphaNum
+pSymbol = (:) <$> (lower <|> digit) <*> many alphaNum
+
+pSymbolExpr :: Parsec String u ASym
+pSymbolExpr =
+  fmap Sym pSymbol
+  <|> try (string "AnyAndNone" >> return AnyAndNone)
+  <|> (string "Any" >> return Any)
+  <|> try (string "Not" >> spaces1 >> fmap Not pSymbol)
+  <|> (string "None" >> return None)
+  <|> (string "Read" >> spaces1 >> fmap Read pSymbol)
 
 
 
 pState :: Parsec String u ASt
-pState = try (do
-          name <- many1 (upper <|> digit)
-          args <- between (string "(" ) (string ")") (sepBy ((Sy <$> many1 (lower<|> digit) <|> (St <$> pState))) (spaces >> string "," >> spaces))
-          return (Func name args))
-         <|> Name <$> many1 (upper <|> digit)
+pState = do
+  name <- pMConfigName
+  (Func name <$> args) <|> return (Name name)
+  where args = inBrackets (sepBy (Sy <$> many1 (lower<|> digit) <|> (St <$> pState)) (spaces >> string "," >> spaces))
 
 pDir :: Parsec String u Dir
 pDir =  (string "L" >> return L)
@@ -30,13 +38,17 @@ pDir =  (string "L" >> return L)
     <|> (string "N" >> return N)
 
 pAction :: Parsec String u (Act)
-pAction = (string "P" >> spaces >> Print <$> many1 (lower <|> digit)) <|> (string "E" >> return (Print " ")) <|> (Move <$> pDir)
+pAction =  (string "P" >> spaces1 >> Print <$> pSymbol)
+       <|> (string "E" >> return (Print " "))
+       <|> (Move <$> pDir)
+
+pActions = sepBy1 pAction  (try (spaces >> string "," >> spaces))
 
 pClause :: Parsec String u (ASym, [Act], ASt)
 pClause = try $ do
-           sym <- pSymbol
-           spaces
-           act <- sepBy1 pAction  (try (spaces >> string "," >> spaces))
+           sym <- pSymbolExpr
+           spaces1
+           act <- pActions
            spaces
            string ";"
            spaces
@@ -51,34 +63,38 @@ pRule = do
            st <- pState
            spaces >> oneOf ":" >> spaces
            clauses <- pClauses
-           return (st, clauses)
+           return (st,clauses)
 
-rulesToAbbrv :: [(ASt, [(ASym, [Act], ASt)])] -> (Abbrv, M.Map ASt [(ASym, [Act], ASt)])
+rulesToAbbrv :: [(ASt, [(ASym, [Act], ASt)])] -> (Env, Status, [ARow])
 rulesToAbbrv = foldl f i
   where
-    i = (Abbrv (M.fromList [(" ", 0), ("0", 1), ("1", 2), ("e", 3)]) (M.fromList [(Name "B", 0)]) M.empty M.empty, M.empty)
-    f (a, tt) (Name n, clauses) = (a {aStateTable = ins (Name n) (aStateTable a)}, M.insert (Name n) clauses tt)
-    f (a, tt) (Func n args, clauses) = (a {aMacroTable = M.insert (n,map SType args) (args,clauses) (aMacroTable a)}, tt)
+    i = (env M.empty (M.fromList [(" ", 0), ("0", 1), ("1", 2)]), emptyStatus, [])
+    f (a, status, tt) (Name n, clauses) = (a, modify states (insSt (Name n)) status, (map (\(a,b,c) -> ((Name n, a), (b,c))) clauses) ++ tt)
+    f (a, status, tt) (Func n args, clauses) = (modify macroMap (M.insert (n,map SType args) (args,clauses)) a, status, tt)
     ins v m = if M.member v m then m else M.insert v (M.size m)  m
+    insSt v m = M.insert v (M.size m) m
 
 -- scanSymbols adds all symbols to the symbolTable
-scanSymbols :: (Abbrv, M.Map ASt [(ASym, [Act], ASt)]) -> (Abbrv, M.Map ASt [(ASym, [Act], ASt)])
-scanSymbols (a, tt) = (foldl f a (M.toList tt), tt)
+scanSymbols :: (Env,Status, [ARow]) -> (Env,Status, [ARow])
+scanSymbols (a,status, tt) = (foldl g a tt, status, tt)
   where
-    f a ((Name n), clauses) = foldl g a clauses
-    g a (Sym sym1, acts, _) = foldl h (ins sym1 a) acts
-    g a (_ , acts, _) = foldl h a acts
+    g a ((_,Sym sym1), (acts, _)) = foldl h (ins sym1 a) acts
+    g a ((_,_), (acts, _)) = foldl h a acts
     h a (Print sym) = ins sym a
     h a _ = a
-    ins s a = case M.lookup s (aSymbolTable a) of
+    ins s a = case M.lookup s (get symbolMap a) of
                 Just _ -> a
-                Nothing -> a {aSymbolTable = M.insert s (M.size (aSymbolTable a)) (aSymbolTable a)}
+                Nothing -> modify symbolMap (M.insert s (M.size (get symbolMap a))) a
 
-parser :: Parsec String u (Abbrv, M.Map ASt [(ASym, [Act], ASt)])
+parser :: Parsec String () (Env, Status, [ARow])
 parser = scanSymbols . rulesToAbbrv <$> many1 pRule
 
+parse' :: Parsec String () a  -> String -> Either ParseError a
+parse' p = parse (p <* (spaces >> eof)) ""
 
+parseAbbrv :: String -> Either ParseError (Env, Status, [ARow])
+parseAbbrv = parse' parser
 
-parseAbbrv :: String -> Either ParseError (Abbrv, M.Map ASt [(ASym, [Act], ASt)])
-parseAbbrv = parse parser ""
-
+parseSymbolExpr = parse' pSymbolExpr
+parseState = parse' pState
+parseActions = parse' pActions
