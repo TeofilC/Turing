@@ -168,15 +168,17 @@ runWidget = do
       "data-button" =. "step1000"
       "Step 1000"
 
-configWidget (Config {..}) sy st = table $ do
-  "class" =. "table table-bordered table-sm scroll monospace"
-  tr $ do
-    mapM col (reverse ltape)
-    td $ do
-      "class" =. "table-info"
-      text $ if cur == 0 then " " else sy IM.! cur
-    mapM col rtape
-  where
+configWidget (Config {..}) sy st = div $ do
+  span (text $ "Current m-config: " ++ show (st IM.!  curState))
+  table $ do
+    "class" =. "table table-bordered table-sm scroll monospace"
+    tr $ do
+      mapM col (reverse ltape)
+      td $ do
+        "class" =. "table-info"
+        text $ if cur == 0 then " " else sy IM.! cur
+      mapM col rtape
+   where
     col sym = td $ (text $ if sym == 0 then " " else sy IM.! sym)
 
 app = do
